@@ -173,7 +173,7 @@ fn style_container(direction: f32) -> container::Style {
         background: Some(
             gradient::Linear::new(angle)
                 .add_stop(0.0, Color::from_rgba8(0, 0, 0, 0.0))
-                .add_stop(1.0, Color::from_rgba8(0, 0, 0, 0.45))
+                .add_stop(1.0, Color::from_rgba8(0, 0, 0, 0.8))
                 .into(),
         ),
         ..container::Style::default()

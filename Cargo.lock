@@ -1630,6 +1630,7 @@ dependencies = [
  "log",
  "thiserror 2.0.12",
  "url",
+ "yuvutils-rs",
 ]
 
 [[package]]
@@ -4628,6 +4629,15 @@ dependencies = [
  "quote",
  "syn",
  "synstructure",
+]
+
+[[package]]
+name = "yuvutils-rs"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "909db140691d64f8ca83054be5108332926f05019f16f13a29559e6ef6fc50a4"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]

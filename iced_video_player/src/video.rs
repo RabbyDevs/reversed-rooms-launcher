@@ -635,14 +635,13 @@ fn yuv_to_rgba(yuv: &[u8], width: u32, height: u32, downscale: u32) -> Vec<u8> {
 
             let uv_i = uv_start + width * (y_src / 2) + x_src / 2 * 2;
 
-            let brightness_adjustment = 10.0; 
-            let y = yuv[(y_src * width + x_src) as usize] as f32 * brightness_adjustment;
+            let y = yuv[(y_src * width + x_src) as usize] as f32;
             let u = yuv[uv_i as usize] as f32;
             let v = yuv[(uv_i + 1) as usize] as f32;
 
-            let r = y + 1.5748 * v;
-            let g = y - 0.1873 * u - 0.4681 * v;
-            let b = y + 1.8556 * u;
+            let r = 1.164 * (y - 16.0) + 1.596 * (v - 128.0);
+            let g = 1.164 * (y - 16.0) - 0.813 * (v - 128.0) - 0.391 * (u - 128.0);
+            let b = 1.164 * (y - 16.0) + 2.018 * (u - 128.0);
 
             rgba.push(r as u8);
             rgba.push(g as u8);

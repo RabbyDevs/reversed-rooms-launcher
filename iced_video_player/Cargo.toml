@@ -18,13 +18,14 @@ exclude = [
 [dependencies]
 iced = { git = "https://github.com/iced-rs/iced.git", rev = "482d54118a733231cdceb4ab8eef2419fbec385e", features = ["smol", "wgpu", "image", "advanced"], default-features = false }
 iced_wgpu = { git = "https://github.com/iced-rs/iced.git", rev = "482d54118a733231cdceb4ab8eef2419fbec385e" }
-gstreamer = "0.23"
-gstreamer-app = "0.23" # appsink
-gstreamer-base = "0.23" # basesrc
-glib = "0.20" # gobject traits and error type
-log = "0.4"
+gstreamer = "0.23.5"
+gstreamer-app = "0.23.5" # appsink
+gstreamer-base = "0.23.5" # basesrc
+glib = "0.20.9" # gobject traits and error type
+log = "0.4.27"
 thiserror = "2.0.12"
-url = "2" # media uri
+url = "2.5.4" # media uri
+yuvutils-rs = "0.8.2"
 
 [package.metadata.nix]
 systems = ["x86_64-linux"]
