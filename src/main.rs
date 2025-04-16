@@ -258,7 +258,6 @@ impl Launcher {
                     Task::none()
                 },
                 Message::HoverEnter() => {
-                    // mouse::Cursor::
                     Task::none()
                 }
                 _ => Task::none(),
@@ -312,7 +311,7 @@ impl Launcher {
                         border: border::rounded(5),
                         ..button::Style::default()
                     }
-                })).on_enter(Message::HoverEnter()))
+                })).interaction(iced::mouse::Interaction::Pointer))
         ])
         .width(Length::Fill)
         .style(move |_theme| style_container(180.0))
