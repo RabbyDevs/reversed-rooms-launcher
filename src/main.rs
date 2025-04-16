@@ -1,4 +1,5 @@
 #![feature(let_chains)]
+use file_format::FileFormat;
 use ::image::ImageReader;
 use iced::{
     Alignment::Center,
@@ -11,9 +12,7 @@ use iced::{
 use iced_video_player::{Video, VideoPlayer};
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::{self, create_dir_all, read_to_string},
-    io::{Cursor, Write},
-    thread::sleep,
+    fs::{self, create_dir_all, read_to_string}, io::{Cursor, Write}, path::PathBuf, thread::sleep
 };
 use tempfile::NamedTempFile;
 
@@ -52,7 +51,6 @@ pub fn main() -> iced::Result {
     };
 
     iced::application(Launcher::boot, Launcher::update, Launcher::view)
-        // .subscription(Launcher::subscription)
         .title(Launcher::title)
         .window(settings)
         .window_size((1280.0, 760.0))
@@ -79,7 +77,7 @@ struct State {
     selected_game: PossibleGames,
     installed_games: Vec<PossibleGames>,
     installed_game_servers: Vec<PossibleGames>,
-    db_software_installed: bool,
+    db_software_installed: bool
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -109,7 +107,7 @@ enum Message {
 }
 
 impl State {
-    fn path() -> std::path::PathBuf {
+    fn path() -> PathBuf {
         let mut path = if let Some(project_dirs) =
             directories::ProjectDirs::from("rs", "reversed-rooms", "launcher")
         {
@@ -162,12 +160,85 @@ impl State {
     }
 }
 
-fn deg_to_rad(deg: f32) -> f32 {
+fn rad(deg: f32) -> f32 {
     deg * std::f32::consts::PI / 180.0
 }
 
+fn get_game_background(game: &PossibleGames) -> Element<Message> {
+    let file_path: &str = match game {
+        PossibleGames::WutheringWaves => "wutheringwaves-bg.mp4",
+        PossibleGames::ZenlessZoneZero => "zenlesszonezero-bg.png",
+        PossibleGames::HonkaiStarRail => "honkaistarrail-bg.png",
+        PossibleGames::GenshinImpact => "genshinimpact-bg.png",
+    };
+
+    if let Some(file) = Assets::get(file_path) {
+        let file_format = FileFormat::from_bytes(file.data.clone());
+        if file_format.extension() == "mp4" {
+            let mut temp_file = NamedTempFile::new().unwrap();
+            temp_file.write_all(&file.data.clone()).unwrap();
+
+            let temp_path = temp_file.path().to_str().unwrap().to_string();
+            let mut video =
+                Video::new(url::Url::from_file_path(temp_path).unwrap()).unwrap();
+            video.set_looping(true);
+
+            VideoPlayer::new(video).into()
+        } else {
+            let img = ImageReader::new(Cursor::new(&file.data))
+                .with_guessed_format()
+                .unwrap()
+                .decode()
+                .unwrap();
+            let handle = image::Handle::from_rgba(
+                img.width(), 
+                img.height(), 
+                img.to_rgba8().into_raw()
+            );
+            image(handle).content_fit(iced::ContentFit::Fill).into()
+        }
+
+    } else {
+        panic!("Missing icon for {:?}, path: {}", game, file_path)
+    }
+}
+
+fn get_game_icon(game: &PossibleGames) -> Element<Message> {
+    let file_path: &str = match game {
+        PossibleGames::WutheringWaves => "wutheringwaves-icon.png",
+        PossibleGames::ZenlessZoneZero => "zenlesszonezero-icon.png",
+        PossibleGames::HonkaiStarRail => "honkaistarrail-icon.png",
+        PossibleGames::GenshinImpact => "genshinimpact-icon.png",
+    };
+    if let Some(img_file) = Assets::get(file_path) {
+        let img = ImageReader::new(Cursor::new(img_file.data))
+            .with_guessed_format()
+            .unwrap()
+            .decode()
+            .unwrap()
+            .resize(126, 126, ::image::imageops::FilterType::Lanczos3);
+        let handle = image::Handle::from_rgba(
+            img.width(), 
+            img.height(), 
+            img.to_rgba8().into_raw()
+        );
+        container(image(handle).content_fit(iced::ContentFit::Contain).height(Length::Fixed(64.0)).filter_method(image::FilterMethod::Linear))
+        .style(move |_| {
+            container::Style {
+                // text_color: Color::from_rgba8(0, 0, 0, 1.0).into(),
+                // background: Some(Color::from_rgba8(255, 255, 255, 1.0).into()),
+                border: border::rounded(20),
+                ..container::Style::default()
+            }
+        })
+        .into()
+    } else {
+        panic!("Missing icon for {:?}, path: {}", game, file_path)
+    }
+}
+
 fn style_container(direction: f32) -> container::Style {
-    let angle = deg_to_rad(direction);
+    let angle = rad(direction);
     container::Style {
         text_color: Color::from_rgba8(255, 255, 255, 1.0).into(),
         background: Some(
@@ -202,11 +273,30 @@ impl Launcher {
     }
 
     fn view(&self) -> Element<Message> {
+        let game_selector = container(
+            row![
+                get_game_icon(&PossibleGames::WutheringWaves),
+                get_game_icon(&PossibleGames::ZenlessZoneZero),
+                get_game_icon(&PossibleGames::HonkaiStarRail),
+                get_game_icon(&PossibleGames::GenshinImpact),
+                // text("test").size(25),
+                // text("test").size(25),
+            ]
+            .spacing(10),
+        )
+        // .padding(10)
+        .align_y(Top)
+        .align_x(Center)
+        .width(Length::Fill);
+
         let topbar = container(row![
-            text("launcher... goog...").size(25),
+            text("Reversed Rooms").size(25),
+            Space::new(Length::Fill, Length::Fixed(0.0)),
+            game_selector,
             Space::new(Length::Fill, Length::Fixed(0.0)),
             text("rabbydevs").size(25),
         ])
+        .height(Length::Fill)
         .width(Length::Fill)
         .style(move |_| style_container(0.0))
         .padding(10);
@@ -233,121 +323,12 @@ impl Launcher {
             column![topbar, Space::new(Length::Fill, Length::Fill), bottom_bar].width(Length::Fill);
 
         let content = container(user_area).center(Length::Fill);
-
-        let game_selector = container(
-            row![
-                text("test").size(25),
-                text("test").size(25),
-                text("test").size(25),
-            ]
-            .spacing(10),
-        )
-        .padding(10)
-        .align_y(Top)
-        .align_x(Center)
-        .width(Length::Fill);
-
-        fn get_game_background(game: &PossibleGames, _video: Option<Video>) -> iced::widget::Image<image::Handle> {
-            match game {
-                PossibleGames::WutheringWaves => panic!("wuwa doesnt have a image lmao?"),
-                PossibleGames::ZenlessZoneZero => {
-                    if let Some(img_file) = Assets::get("zenlesszonezero-bg.png") {
-                        let img = ImageReader::new(Cursor::new(img_file.data))
-                            .with_guessed_format()
-                            .unwrap()
-                            .decode()
-                            .unwrap();
-                        let handle = image::Handle::from_rgba(
-                            img.width(), 
-                            img.height(), 
-                            img.to_rgba8().into_raw()
-                        );
-                        return image(handle).content_fit(iced::ContentFit::Fill);
-                    }
-                },
-                PossibleGames::HonkaiStarRail => {
-                    if let Some(img_file) = Assets::get("honkaistarrail-bg.png") {
-                        let img = ImageReader::new(Cursor::new(img_file.data))
-                            .with_guessed_format()
-                            .unwrap()
-                            .decode()
-                            .unwrap();
-                        let handle = image::Handle::from_rgba(
-                            img.width(), 
-                            img.height(), 
-                            img.to_rgba8().into_raw()
-                        );
-                        return image(handle).content_fit(iced::ContentFit::Fill);
-                    }
-                },
-                PossibleGames::GenshinImpact => {
-                    if let Some(img_file) = Assets::get("genshinimpact-bg.png") {
-                        let img = ImageReader::new(Cursor::new(img_file.data))
-                            .with_guessed_format()
-                            .unwrap()
-                            .decode()
-                            .unwrap();
-                        let handle = image::Handle::from_rgba(
-                            img.width(), 
-                            img.height(), 
-                            img.to_rgba8().into_raw()
-                        );
-                        return image(handle).content_fit(iced::ContentFit::Fill);
-                    }
-                }
-            }
-            
-            let bg_file = Assets::get("placeholder.png").unwrap();
-            let bg_image = ImageReader::new(Cursor::new(bg_file.data))
-                .with_guessed_format()
-                .unwrap()
-                .decode()
-                .unwrap();
-            let handle = image::Handle::from_rgba(
-                bg_image.width(), 
-                bg_image.height(), 
-                bg_image.to_rgba8().into_raw()
-            );
-            image(handle).content_fit(iced::ContentFit::Fill)
-        }
         
         println!("whuh");
         match self {
             Launcher::Loading => loading_message(),
             Launcher::Loaded(state) => {
-                match state.selected_game {
-                    PossibleGames::WutheringWaves => {
-                        let video_file = Assets::get("wutheringwaves-bg.mp4").unwrap();
-                        let mut temp_file = NamedTempFile::new().unwrap();
-                        temp_file.write_all(&video_file.data).unwrap();
-                        temp_file.flush().unwrap();
-
-                        let temp_path = temp_file.path().to_str().unwrap().to_string();
-                        let mut video =
-                            Video::new(url::Url::from_file_path(temp_path).unwrap()).unwrap();
-                        video.set_looping(true);
-
-                        let game_video = video;
-                        let player = VideoPlayer::new(game_video);
-
-                        stack![player, content, game_selector,].into()
-                    }
-                    PossibleGames::ZenlessZoneZero => {
-                        let bg_image = get_game_background(&state.selected_game, None);
-
-                        stack![bg_image, content, game_selector].into()
-                    }
-                    PossibleGames::HonkaiStarRail => {
-                        let bg_image = get_game_background(&state.selected_game, None);
-
-                        stack![bg_image, content, game_selector].into()
-                    }
-                    PossibleGames::GenshinImpact => {
-                        let bg_image = get_game_background(&state.selected_game, None);
-
-                        stack![bg_image, content, game_selector].into()
-                    }
-                }
+                stack![get_game_background(&state.selected_game), content].into()
             }
         }
     }

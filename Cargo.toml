@@ -6,7 +6,7 @@ edition = "2024"
 
 [dependencies]
 directories = "6.0.0"
-iced = { git = "https://github.com/iced-rs/iced.git", rev = "482d54118a733231cdceb4ab8eef2419fbec385e", features = ["smol", "tiny-skia", "image"], default-features = false }
+iced = { git = "https://github.com/iced-rs/iced.git", rev = "482d54118a733231cdceb4ab8eef2419fbec385e", features = ["tokio", "tiny-skia", "wgpu", "image"], default-features = false }
 image = "0.25.6"
 serde = { version = "1.0.219", features = ["serde_derive"] }
 serde_json = "1.0.140"
@@ -14,3 +14,10 @@ tempfile = "3.19.1"
 iced_video_player = {path = "./iced_video_player"}
 url = "2.5.4"
 rust-embed = "8.7.0"
+file-format = "0.26.0"
+
+[profile.release]
+strip = true      # Automatically strip symbols from the binary.
+lto = true        # Link-time optimization.
+opt-level = 3     # Optimize for speed.
+codegen-units = 1 # Maximum size reduction optimizations.
