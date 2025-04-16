@@ -170,11 +170,16 @@ fn get_game_background(game: &PossibleGames) -> Element<Message> {
             temp_file.write_all(&file.data.clone()).unwrap();
 
             let temp_path = temp_file.path().to_str().unwrap().to_string();
-            let mut video =
-                Video::new(url::Url::from_file_path(temp_path).unwrap()).unwrap();
-            video.set_looping(true);
+            match Video::new(url::Url::from_file_path(temp_path).unwrap()) {
+                Ok(mut video) => {
+                    video.set_looping(true);
 
-            VideoPlayer::new(video).into()
+                    VideoPlayer::new(video).into()
+                },
+                Err(err) => {
+                    panic!("{:#?}", err)
+                },
+            }
         } else {
             let img = ImageReader::new(Cursor::new(&file.data))
                 .with_guessed_format()
