@@ -1,13 +1,8 @@
-#![feature(let_chains)]
+// #![feature(let_chains)]
 use file_format::FileFormat;
 use ::image::ImageReader;
 use iced::{
-    Alignment::Center,
-    Color, Element, Length, Renderer, Size, Task, Theme,
-    alignment::Vertical::Top,
-    border, gradient,
-    widget::{Column, Space, center, column, container, image, row, stack, text},
-    window::{self, Settings, icon, settings::PlatformSpecific},
+    alignment::Vertical::Top, border, gradient, mouse, widget::{button, center, column, container, image, mouse_area, row, stack, text, Column, Space}, window::{self, icon, settings::PlatformSpecific, Settings}, Alignment::Center, Color, Element, Length, Renderer, Size, Task, Theme
 };
 use iced_video_player::{Video, VideoPlayer};
 use serde::{Deserialize, Serialize};
@@ -42,12 +37,8 @@ pub fn main() -> iced::Result {
         resizable: true,
         transparent: false,
         level: window::Level::Normal,
-        platform_specific: PlatformSpecific {
-            drag_and_drop: false,
-            skip_taskbar: false,
-            undecorated_shadow: false,
-        },
         exit_on_close_request: true,
+        ..Settings::default()
     };
 
     iced::application(Launcher::boot, Launcher::update, Launcher::view)
@@ -102,7 +93,7 @@ enum SaveError {
 #[derive(Debug, Clone)]
 enum Message {
     Loaded(Result<State, LoadError>),
-    Tick,
+    HoverEnter(),
     GameSelected(PossibleGames),
 }
 
@@ -265,6 +256,10 @@ impl Launcher {
                 Message::Loaded(Ok(state)) => {
                     *self = Launcher::Loaded(state);
                     Task::none()
+                },
+                Message::HoverEnter() => {
+                    // mouse::Cursor::
+                    Task::none()
                 }
                 _ => Task::none(),
             },
@@ -289,12 +284,16 @@ impl Launcher {
         .align_x(Center)
         .width(Length::Fill);
 
+        // let decorations = container(row![
+        //     button(content)
+        // ]);
+
         let topbar = container(row![
             text("Reversed Rooms").size(25),
             Space::new(Length::Fill, Length::Fixed(0.0)),
             game_selector,
             Space::new(Length::Fill, Length::Fixed(0.0)),
-            text("rabbydevs").size(25),
+            // text("rabbydevs").size(25),
         ])
         .height(Length::Fill)
         .width(Length::Fill)
@@ -304,16 +303,16 @@ impl Launcher {
         let bottom_bar = container(row![
             text("insert game announcements").size(25),
             Space::new(Length::Fill, Length::Fixed(0.0)),
-            container(text("Launch").size(25))
+            container(mouse_area(button(text("Launch").size(25))
                 .padding(10)
-                .style(move |_| {
-                    container::Style {
-                        text_color: Color::from_rgba8(0, 0, 0, 1.0).into(),
+                .style(move |_, _| {
+                    button::Style {
+                        text_color: Color::from_rgba8(0, 0, 0, 1.0),
                         background: Some(Color::from_rgba8(255, 255, 255, 1.0).into()),
                         border: border::rounded(5),
-                        ..container::Style::default()
+                        ..button::Style::default()
                     }
-                })
+                })).on_enter(Message::HoverEnter()))
         ])
         .width(Length::Fill)
         .style(move |_theme| style_container(180.0))
