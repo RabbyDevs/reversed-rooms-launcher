@@ -56,6 +56,7 @@ impl Frame {
 
 #[derive(Debug)]
 pub(crate) struct Internal {
+    // pub(crate) uri: url::Url,
     pub(crate) id: u64,
 
     pub(crate) bus: gst::Bus,
@@ -194,6 +195,12 @@ impl Internal {
 #[derive(Debug)]
 pub struct Video(pub(crate) RwLock<Internal>);
 
+// impl Clone for Video {
+//     fn clone(&self) -> Self {
+//         Video::new(self.read().uri.clone()).unwrap()
+//     }
+// }
+
 impl Drop for Video {
     fn drop(&mut self) {
         let inner = self.0.get_mut().expect("failed to lock");
@@ -240,7 +247,12 @@ impl Video {
         let text_sink: gst::Element = pipeline.property("text-sink");
         let text_sink = text_sink.downcast::<gst_app::AppSink>().unwrap();
 
-        Self::from_gst_pipeline(pipeline, video_sink, Some(text_sink))
+        Self::from_gst_pipeline(
+            // uri, 
+            pipeline, 
+            video_sink, 
+            Some(text_sink)
+        )
     }
 
     /// Creates a new video based on an existing GStreamer pipeline and appsink.
@@ -252,6 +264,7 @@ impl Video {
     /// **Note:** Many functions of [`Video`] assume a `playbin` pipeline.
     /// Non-`playbin` pipelines given here may not have full functionality.
     pub fn from_gst_pipeline(
+        // uri: url::Url,
         pipeline: gst::Pipeline,
         video_sink: gst_app::AppSink,
         text_sink: Option<gst_app::AppSink>,
@@ -414,6 +427,7 @@ impl Video {
         });
 
         Ok(Video(RwLock::new(Internal {
+            // uri,
             id,
 
             bus: pipeline.bus().unwrap(),

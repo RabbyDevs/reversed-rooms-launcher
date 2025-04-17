@@ -1,15 +1,19 @@
-// #![feature(let_chains)]
 use file_format::FileFormat;
 use ::image::ImageReader;
 use iced::{
-    alignment::Vertical::Top, border, gradient, mouse, widget::{button, center, column, container, image, mouse_area, row, stack, text, Column, Space}, window::{self, icon, settings::PlatformSpecific, Settings}, Alignment::Center, Color, Element, Length, Renderer, Size, Task, Theme
+    alignment::Vertical::Top, border, gradient, mouse, widget::{button, center, column, container, image, mouse_area, row, stack, text, Column, Space}, window::{self, icon, Settings}, Alignment::Center, Color, Element, Font, Length, Point, Renderer, Size, Subscription, Task, Theme
 };
 use iced_video_player::{Video, VideoPlayer};
 use serde::{Deserialize, Serialize};
+use utils::img_utils::round_image;
 use std::{
-    fs::{self, create_dir_all, read_to_string}, io::{Cursor, Write}, path::PathBuf, thread::sleep
+    env, fs::{self, create_dir_all, read_to_string}, io::{Cursor, Read, Write}, path::PathBuf, sync::Arc
 };
+mod utils;
 use tempfile::NamedTempFile;
+use iced::event::{self, Event};
+use iced::keyboard::Event as KeyboardEvent;
+use iced::mouse::Event as MouseEvent;
 
 #[derive(rust_embed::Embed)]
 #[folder = "resources"]
@@ -22,7 +26,7 @@ pub fn main() -> iced::Result {
         .unwrap()
         .decode()
         .unwrap();
-    let rgba_vec = icon_image.as_rgba8().unwrap().clone().into_vec();
+    let rgba_vec = icon_image.as_rgba8().unwrap().to_vec();
 
     let settings = Settings {
         decorations: false,
@@ -68,7 +72,7 @@ struct State {
     selected_game: PossibleGames,
     installed_games: Vec<PossibleGames>,
     installed_game_servers: Vec<PossibleGames>,
-    db_software_installed: bool
+    db_software_installed: bool,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -93,62 +97,54 @@ enum SaveError {
 #[derive(Debug, Clone)]
 enum Message {
     Loaded(Result<State, LoadError>),
-    HoverEnter(),
-    GameSelected(PossibleGames),
+    DragStarted,
+    GameSelected(PossibleGames)
 }
 
 impl State {
-    fn path() -> PathBuf {
-        let mut path = if let Some(project_dirs) =
-            directories::ProjectDirs::from("rs", "reversed-rooms", "launcher")
-        {
-            project_dirs.data_dir().into()
-        } else {
-            std::env::current_dir().unwrap_or_default()
-        };
+    // fn path() -> PathBuf {
+    //     path.push("launcher-state.json");
 
-        path.push("launcher-state.json");
+    //     path
+    // }
 
-        path
-    }
+    // fn load() -> Result<State, LoadError> {
+    //     let contents = read_to_string(Self::path()).map_err(|_| LoadError::File)?;
 
-    fn load() -> Result<State, LoadError> {
-        let contents = read_to_string(Self::path()).map_err(|_| LoadError::File)?;
+    //     let saved_state: SavedState =
+    //         serde_json::from_str(&contents).map_err(|_| LoadError::Format)?;
 
-        let saved_state: SavedState =
-            serde_json::from_str(&contents).map_err(|_| LoadError::Format)?;
+    //     Ok(State {
+    //         selected_game: PossibleGames::WutheringWaves,
+    //         installed_games: saved_state.installed_games,
+    //         installed_game_servers: saved_state.installed_game_servers,
+    //         db_software_installed: saved_state.db_software_installed,
+    //     })
+    // }
 
-        Ok(State {
-            selected_game: PossibleGames::WutheringWaves,
-            installed_games: saved_state.installed_games,
-            installed_game_servers: saved_state.installed_game_servers,
-            db_software_installed: saved_state.db_software_installed,
-        })
-    }
+    // async fn save(self) -> Result<(), SaveError> {
+    //     let saved_state = SavedState {
+    //         installed_games: self.installed_games,
+    //         installed_game_servers: self.installed_game_servers,
+    //         db_software_installed: self.db_software_installed,
+    //     };
 
-    async fn save(self) -> Result<(), SaveError> {
-        let saved_state = SavedState {
-            installed_games: self.installed_games,
-            installed_game_servers: self.installed_game_servers,
-            db_software_installed: self.db_software_installed,
-        };
+    //     let json = serde_json::to_string_pretty(&saved_state).map_err(|_| SaveError::Format)?;
 
-        let json = serde_json::to_string_pretty(&saved_state).map_err(|_| SaveError::Format)?;
+    //     let path = Self::path();
 
-        let path = Self::path();
+    //     if let Some(dir) = path.parent() {
+    //         create_dir_all(dir).map_err(|_| SaveError::Write)?;
+    //     }
 
-        if let Some(dir) = path.parent() {
-            create_dir_all(dir).map_err(|_| SaveError::Write)?;
-        }
+    //     {
+    //         fs::write(path, json.as_bytes()).map_err(|_| SaveError::Write)?;
+    //     }
 
-        {
-            fs::write(path, json.as_bytes()).map_err(|_| SaveError::Write)?;
-        }
+    //     sleep(std::time::Duration::from_secs(2));
 
-        sleep(std::time::Duration::from_secs(2));
-
-        Ok(())
-    }
+    //     Ok(())
+    // }
 }
 
 fn rad(deg: f32) -> f32 {
@@ -164,10 +160,11 @@ fn get_game_background(game: &PossibleGames) -> Element<Message> {
     };
 
     if let Some(file) = Assets::get(file_path) {
-        let file_format = FileFormat::from_bytes(file.data.clone());
+        let data = Arc::new(file.data);
+        let file_format = FileFormat::from_bytes(&*data);
         if file_format.extension() == "mp4" {
             let mut temp_file = NamedTempFile::new().unwrap();
-            temp_file.write_all(&file.data.clone()).unwrap();
+            temp_file.write_all(&data).unwrap();
 
             let temp_path = temp_file.path().to_str().unwrap().to_string();
             match Video::new(url::Url::from_file_path(temp_path).unwrap()) {
@@ -181,7 +178,7 @@ fn get_game_background(game: &PossibleGames) -> Element<Message> {
                 },
             }
         } else {
-            let img = ImageReader::new(Cursor::new(&file.data))
+            let img = ImageReader::new(Cursor::new(&*data))
                 .with_guessed_format()
                 .unwrap()
                 .decode()
@@ -207,10 +204,8 @@ fn get_game_icon(game: &PossibleGames) -> Element<Message> {
         PossibleGames::GenshinImpact => "genshinimpact-icon.png",
     };
     if let Some(img_file) = Assets::get(file_path) {
-        let img = ImageReader::new(Cursor::new(img_file.data))
-            .with_guessed_format()
-            .unwrap()
-            .decode()
+        let data_cursor = Cursor::new(img_file.data);
+        let img = round_image(data_cursor)
             .unwrap()
             .resize(126, 126, ::image::imageops::FilterType::Lanczos3);
         let handle = image::Handle::from_rgba(
@@ -221,8 +216,6 @@ fn get_game_icon(game: &PossibleGames) -> Element<Message> {
         container(image(handle).content_fit(iced::ContentFit::Contain).height(Length::Fixed(64.0)).filter_method(image::FilterMethod::Linear))
         .style(move |_| {
             container::Style {
-                // text_color: Color::from_rgba8(0, 0, 0, 1.0).into(),
-                // background: Some(Color::from_rgba8(255, 255, 255, 1.0).into()),
                 border: border::rounded(20),
                 ..container::Style::default()
             }
@@ -233,16 +226,16 @@ fn get_game_icon(game: &PossibleGames) -> Element<Message> {
     }
 }
 
-fn style_container(direction: f32) -> container::Style {
+fn style_container(direction: f32, use_gradient: bool) -> container::Style {
     let angle = rad(direction);
+    let gradient: Option<iced::Background> = if use_gradient {            
+        Some(gradient::Linear::new(angle)
+        .add_stop(0.0, Color::from_rgba8(0, 0, 0, 0.0))
+        .add_stop(1.0, Color::from_rgba8(0, 0, 0, 0.8)).into())
+    } else {None};
     container::Style {
         text_color: Color::from_rgba8(255, 255, 255, 1.0).into(),
-        background: Some(
-            gradient::Linear::new(angle)
-                .add_stop(0.0, Color::from_rgba8(0, 0, 0, 0.0))
-                .add_stop(1.0, Color::from_rgba8(0, 0, 0, 0.8))
-                .into(),
-        ),
+        background: gradient,
         ..container::Style::default()
     }
 }
@@ -262,12 +255,18 @@ impl Launcher {
                     *self = Launcher::Loaded(state);
                     Task::none()
                 },
-                Message::HoverEnter() => {
-                    Task::none()
-                }
                 _ => Task::none(),
             },
-            _ => Task::none(),
+            Launcher::Loaded(_) => {
+                match message {
+                    Message::DragStarted => {
+                        window::get_latest().and_then(move |id: window::Id| {
+                            window::drag(id)
+                        })
+                    },
+                    _ => Task::none()
+                }
+            }
         }
     }
 
@@ -278,65 +277,55 @@ impl Launcher {
                 get_game_icon(&PossibleGames::ZenlessZoneZero),
                 get_game_icon(&PossibleGames::HonkaiStarRail),
                 get_game_icon(&PossibleGames::GenshinImpact),
-                // text("test").size(25),
-                // text("test").size(25),
             ]
             .spacing(10),
         )
-        // .padding(10)
+        .padding(10)
         .align_y(Top)
         .align_x(Center)
-        .width(Length::Fill);
-
-        // let decorations = container(row![
-        //     button(content)
-        // ]);
-
-        let topbar = container(row![
-            text("Reversed Rooms").size(25),
-            Space::new(Length::Fill, Length::Fixed(0.0)),
-            game_selector,
-            Space::new(Length::Fill, Length::Fixed(0.0)),
-            // text("rabbydevs").size(25),
-        ])
-        .height(Length::Fill)
         .width(Length::Fill)
-        .style(move |_| style_container(0.0))
-        .padding(10);
-
-        let bottom_bar = container(row![
-            text("insert game announcements").size(25),
-            Space::new(Length::Fill, Length::Fixed(0.0)),
-            container(mouse_area(button(text("Launch").size(25))
-                .padding(10)
-                .style(move |_, _| {
-                    button::Style {
-                        text_color: Color::from_rgba8(0, 0, 0, 1.0),
-                        background: Some(Color::from_rgba8(255, 255, 255, 1.0).into()),
-                        border: border::rounded(5),
-                        ..button::Style::default()
-                    }
-                })).interaction(iced::mouse::Interaction::Pointer))
-        ])
-        .width(Length::Fill)
-        .style(move |_theme| style_container(180.0))
-        .padding(20);
-
-        let user_area: Column<Message, Theme, Renderer> =
-            column![topbar, Space::new(Length::Fill, Length::Fill), bottom_bar].width(Length::Fill);
-
-        let content = container(user_area).center(Length::Fill);
+        .style(move |_| style_container(0.0, true));
         
         println!("whuh");
         match self {
-            Launcher::Loading => loading_message(),
+            Launcher::Loading => center(text("Loading...").size(50)).into(),
             Launcher::Loaded(state) => {
-                stack![get_game_background(&state.selected_game), content].into()
+                let topbar = container(
+                    mouse_area(row![
+                    text("Reversed Rooms").size(25),
+                    Space::new(Length::Fill, Length::Fixed(0.0)),
+                ])
+                .on_press(Message::DragStarted))
+                .width(Length::Fill)
+                .style(move |_| style_container(0.0, false))
+                .padding(10);
+        
+                let bottom_bar = container(row![
+                    text("insert game announcements").size(25),
+                    Space::new(Length::Fill, Length::Fixed(0.0)),
+                    container(mouse_area(button(text("Launch").size(25))
+                        .padding(10)
+                        .style(move |_, _| {
+                            button::Style {
+                                text_color: Color::from_rgba8(0, 0, 0, 1.0),
+                                background: Some(Color::from_rgba8(255, 255, 255, 1.0).into()),
+                                border: border::rounded(5),
+                                ..button::Style::default()
+                            }
+                        })).interaction(iced::mouse::Interaction::Pointer))
+                ])
+                .width(Length::Fill)
+                .style(move |_theme| style_container(180.0, true))
+                .padding(20);
+        
+                let user_area: Column<Message, Theme, Renderer> =
+                    column![topbar, Space::new(Length::Fill, Length::Fill), bottom_bar].width(Length::Fill);
+        
+                let content = container(user_area).center(Length::Fill);
+
+                stack![get_game_background(&state.selected_game), game_selector, content].into()
             }
         }
     }
 }
 
-fn loading_message<'a>() -> Element<'a, Message> {
-    center(text("Loading...").size(50)).into()
-}
