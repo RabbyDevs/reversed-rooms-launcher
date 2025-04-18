@@ -14,7 +14,6 @@ use utils::{img_utils::round_image, visual_helper::{get_game_background, get_gam
 use std::{
     collections::HashMap, env, fs::{self, create_dir_all, read_to_string}, io::{Cursor, Read, Write}, path::PathBuf, sync::Arc
 };
-use tempfile::NamedTempFile;
 
 #[derive(rust_embed::Embed)]
 #[folder = "resources"]
@@ -183,7 +182,7 @@ fn style_container(direction: f32, use_gradient: bool) -> container::Style {
     let gradient: Option<iced::Background> = if use_gradient {            
         Some(gradient::Linear::new(angle)
         .add_stop(0.0, Color::from_rgba8(0, 0, 0, 0.0))
-        .add_stop(1.0, Color::from_rgba8(0, 0, 0, 0.8)).into())
+        .add_stop(0.75, Color::from_rgba8(0, 0, 0, 0.75)).into())
     } else {None};
     container::Style {
         text_color: Color::from_rgba8(255, 255, 255, 1.0).into(),
@@ -299,17 +298,22 @@ impl Launcher {
                 .style(move |_theme| style_container(180.0, true))
                 .padding(20);
         
-                let user_area: Column<Message, Theme, Renderer> =
-                    column![topbar, Space::new(Length::Fill, Length::Fill), bottom_bar].width(Length::Fill);
+                let user_area = stack![
+                        game_selector, 
+                        column![topbar, Space::new(Length::Fill, Length::Fill), bottom_bar]
+                            .width(Length::Fill)
+                            .height(Length::Fill)
+                    ]
+                    .width(Length::Fill)
+                    .height(Length::Fill);
         
-                let content = container(user_area).center(Length::Fill);
                 let background = state.background.as_ref().unwrap();
                 let bg_element: Element<Message> = match background {
                     LauncherBackground::Video(video) => VideoPlayer::new(video).into(),
                     LauncherBackground::Image(handle) => image(handle.clone()).into(),
                 };
 
-                stack![bg_element, game_selector, content].into()
+                stack![bg_element, user_area].into()
             }
         }
     }
