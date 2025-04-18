@@ -1,15 +1,16 @@
+// #![windows_subsystem = "windows"]
 mod utils;
 
 use file_format::FileFormat;
 use ::image::{DynamicImage, ImageReader};
 use iced::{
-    alignment::Vertical::Top, border, gradient, mouse, wgpu::naga::back, widget::{button, center, column, container, image, mouse_area, row, stack, text, Column, Space}, window::{self, icon, Settings}, Alignment::Center, Color, Element, Font, Length, Point, Renderer, Size, Subscription, Task, Theme
+    alignment::Vertical::{Bottom, Top}, border, font, gradient, mouse, wgpu::naga::back, widget::{button, center, column, container, image, mouse_area, row, stack, text, Column, Space}, window::{self, icon, Settings}, Alignment::Center, Color, Element, Font, Length, Point, Renderer, Size, Subscription, Task, Theme
 };
 use iced_video_player::{Video, VideoPlayer};
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
-use utils::img_utils::round_image;
+use utils::{img_utils::round_image, visual_helper::{get_game_background, get_game_icon, get_game_icon_handle}};
 use std::{
     collections::HashMap, env, fs::{self, create_dir_all, read_to_string}, io::{Cursor, Read, Write}, path::PathBuf, sync::Arc
 };
@@ -122,7 +123,9 @@ enum SaveError {
 enum Message {
     Loaded(Result<SavedState, LoadError>),
     DragStarted,
-    GameSelected(PossibleGames)
+    GameSelected(PossibleGames),
+    Close,
+    Minimize
 }
 
 impl State {
@@ -175,77 +178,6 @@ fn rad(deg: f32) -> f32 {
     deg * std::f32::consts::PI / 180.0
 }
 
-fn get_game_background(state: &State) -> LauncherBackground {
-    let file_path: &str = match state.selected_game {
-        PossibleGames::WutheringWaves => "wutheringwaves-bg.mp4",
-        PossibleGames::ZenlessZoneZero => "zenlesszonezero-bg.png",
-        PossibleGames::HonkaiStarRail => "honkaistarrail-bg.png",
-        PossibleGames::GenshinImpact => "genshinimpact-bg.png",
-    };
-
-    if let Some(file) = Assets::get(file_path) {
-        let data = Arc::new(file.data);
-        let file_format = FileFormat::from_bytes(&*data);
-        if file_format.extension() == "mp4" {
-            let mut temp_file = NamedTempFile::new().unwrap();
-            temp_file.write_all(&data).unwrap();
-
-            let temp_path = temp_file.path().to_str().unwrap().to_string();
-            match Video::new(url::Url::from_file_path(temp_path).unwrap()) {
-                Ok(mut video) => {
-                    video.set_looping(true);
-                    LauncherBackground::Video(video)
-                },
-                Err(err) => {
-                    panic!("{:#?}", err)
-                },
-            }
-        } else {
-            let img = ImageReader::new(Cursor::new(&*data))
-                .with_guessed_format()
-                .unwrap()
-                .decode()
-                .unwrap();
-            LauncherBackground::Image(image::Handle::from_rgba(
-                img.width(), 
-                img.height(), 
-                img.to_rgba8().into_raw()
-            ))
-        }
-
-    } else {
-        panic!("Missing icon for {:?}, path: {}", state.selected_game, file_path)
-    }
-}
-
-fn get_game_icon_handle(game: &PossibleGames) -> image::Handle {
-    let file_path: &str = match game {
-        PossibleGames::WutheringWaves => "wutheringwaves-icon.png",
-        PossibleGames::ZenlessZoneZero => "zenlesszonezero-icon.png",
-        PossibleGames::HonkaiStarRail => "honkaistarrail-icon.png",
-        PossibleGames::GenshinImpact => "genshinimpact-icon.png",
-    };
-    if let Some(img_file) = Assets::get(file_path) {
-        let data_cursor = Cursor::new(img_file.data);
-        let img = round_image(data_cursor)
-            .unwrap()
-            .resize(126, 126, ::image::imageops::FilterType::Lanczos3);
-        
-        image::Handle::from_rgba(
-            img.width(), 
-            img.height(), 
-            img.to_rgba8().into_raw()
-        )
-    } else {
-        panic!("Missing icon for {:?}, path: {}", game, file_path)
-    }
-}
-
-fn get_game_icon<'a>(state: &'a State, game: &'a PossibleGames) -> Element<'a, Message> {
-    let handle = state.icon_images.get(game).unwrap();
-    container(image(handle).content_fit(iced::ContentFit::Contain).height(Length::Fixed(64.0)).filter_method(image::FilterMethod::Linear)).into()
-}
-
 fn style_container(direction: f32, use_gradient: bool) -> container::Style {
     let angle = rad(direction);
     let gradient: Option<iced::Background> = if use_gradient {            
@@ -284,7 +216,9 @@ impl Launcher {
             Launcher::Loading => match message {
                 Message::Loaded(Ok(save_state)) => {
                     *self = Launcher::Loaded(save_state.into());
-                    Task::none()
+                    let segoe_assets = Assets::get("segoe-mdl2-assets.tff").unwrap();
+                    let montserrat = Assets::get("Montserrat-SemiBold.ttf").unwrap();
+                    Task::batch([font::load(montserrat.data).and_then(|_| Task::none()), font::load(segoe_assets.data).and_then(|_| {Task::none()})])
                 },
                 _ => Task::none(),
             },
@@ -295,18 +229,28 @@ impl Launcher {
                             window::drag(id)
                         })
                     },
+                    Message::Close => {
+                        window::get_latest().and_then(move |id: window::Id| {
+                            window::close(id)
+                        })
+                    },
+                    Message::Minimize => {
+                        window::get_latest().and_then(move |id: window::Id| {
+                            window::minimize(id, true)
+                        })
+                    }
                     _ => Task::none()
                 }
             }
         }
     }
 
-    fn view(&self) -> Element<Message> {     
+    fn view(&self) -> Element<Message> {  
         println!("rerender triggered");
         match self {
             Launcher::Loading => center(text("Loading...").size(50)).into(),
             Launcher::Loaded(state) => {
-                let game_selector = container(
+                let game_selector = mouse_area(container(
                     row![
                         get_game_icon(state, &PossibleGames::WutheringWaves),
                         get_game_icon(state, &PossibleGames::ZenlessZoneZero),
@@ -319,20 +263,25 @@ impl Launcher {
                 .align_y(Top)
                 .align_x(Center)
                 .width(Length::Fill)
-                .style(move |_| style_container(0.0, true));
+                .style(move |_| style_container(0.0, true)))
+                .on_press(Message::DragStarted);
 
                 let topbar = container(
-                    mouse_area(row![
-                    text("Reversed Rooms").size(25),
+                    row![
+                    text("Reversed Rooms").size(25).font(Font::with_name("Montserrat-SemiBold")),
                     Space::new(Length::Fill, Length::Fixed(0.0)),
+                    row![
+                        mouse_area(text("\u{E949}").font(Font::with_name("Segoe MDL2 Assets")).size(25))
+                        .on_release(Message::Minimize),
+                        mouse_area(text("\u{E106}").font(Font::with_name("Segoe MDL2 Assets")).size(25)).on_release(Message::Close)
+                    ].spacing(20)
                 ])
-                .on_press(Message::DragStarted))
                 .width(Length::Fill)
                 .style(move |_| style_container(0.0, false))
-                .padding(10);
+                .padding(20);
         
                 let bottom_bar = container(row![
-                    text("insert game announcements").size(25),
+                    text("insert game announcements").size(25).font(Font::with_name("Montserrat SemiBold")).align_y(Bottom),
                     Space::new(Length::Fill, Length::Fixed(0.0)),
                     container(mouse_area(button(text("Launch").size(25))
                         .padding(10)
@@ -345,6 +294,7 @@ impl Launcher {
                             }
                         })).interaction(iced::mouse::Interaction::Pointer))
                 ])
+                .align_y(Bottom)
                 .width(Length::Fill)
                 .style(move |_theme| style_container(180.0, true))
                 .padding(20);
