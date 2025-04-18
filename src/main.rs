@@ -1,19 +1,19 @@
+mod utils;
+
 use file_format::FileFormat;
-use ::image::ImageReader;
+use ::image::{DynamicImage, ImageReader};
 use iced::{
-    alignment::Vertical::Top, border, gradient, mouse, widget::{button, center, column, container, image, mouse_area, row, stack, text, Column, Space}, window::{self, icon, Settings}, Alignment::Center, Color, Element, Font, Length, Point, Renderer, Size, Subscription, Task, Theme
+    alignment::Vertical::Top, border, gradient, mouse, wgpu::naga::back, widget::{button, center, column, container, image, mouse_area, row, stack, text, Column, Space}, window::{self, icon, Settings}, Alignment::Center, Color, Element, Font, Length, Point, Renderer, Size, Subscription, Task, Theme
 };
 use iced_video_player::{Video, VideoPlayer};
 use serde::{Deserialize, Serialize};
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 use utils::img_utils::round_image;
 use std::{
-    env, fs::{self, create_dir_all, read_to_string}, io::{Cursor, Read, Write}, path::PathBuf, sync::Arc
+    collections::HashMap, env, fs::{self, create_dir_all, read_to_string}, io::{Cursor, Read, Write}, path::PathBuf, sync::Arc
 };
-mod utils;
 use tempfile::NamedTempFile;
-use iced::event::{self, Event};
-use iced::keyboard::Event as KeyboardEvent;
-use iced::mouse::Event as MouseEvent;
 
 #[derive(rust_embed::Embed)]
 #[folder = "resources"]
@@ -38,7 +38,7 @@ pub fn main() -> iced::Result {
         max_size: None,
         min_size: None,
         visible: true,
-        resizable: true,
+        resizable: false,
         transparent: false,
         level: window::Level::Normal,
         exit_on_close_request: true,
@@ -52,7 +52,7 @@ pub fn main() -> iced::Result {
         .run()
 }
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, EnumIter, Default, Serialize, Deserialize)]
 enum PossibleGames {
     #[default]
     WutheringWaves,
@@ -64,22 +64,46 @@ enum PossibleGames {
 #[derive(Debug)]
 enum Launcher {
     Loading,
-    Loaded(State),
+    Loaded(Box<State>),
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug)]
+enum LauncherBackground {
+    Video(Video),
+    Image(image::Handle),
+}
+
+
+impl LauncherBackground {
+    fn inner(&self) -> Element<Message> {
+        match self {
+            LauncherBackground::Video(video) => VideoPlayer::new(video).into(),
+            LauncherBackground::Image(handle) => image(handle).into(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
 struct State {
     selected_game: PossibleGames,
     installed_games: Vec<PossibleGames>,
     installed_game_servers: Vec<PossibleGames>,
     db_software_installed: bool,
+    background: Option<LauncherBackground>,
+    icon_images: HashMap<PossibleGames, image::Handle>
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct SavedState {
     installed_games: Vec<PossibleGames>,
     installed_game_servers: Vec<PossibleGames>,
     db_software_installed: bool,
+}
+
+impl From<SavedState> for Box<State> {
+    fn from(val: SavedState) -> Self {
+        Box::new(State { installed_games: val.installed_games, installed_game_servers: val.installed_game_servers, db_software_installed: val.db_software_installed, ..State::default() })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -88,7 +112,7 @@ enum LoadError {
     Format,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum SaveError {
     Write,
     Format,
@@ -96,7 +120,7 @@ enum SaveError {
 
 #[derive(Debug, Clone)]
 enum Message {
-    Loaded(Result<State, LoadError>),
+    Loaded(Result<SavedState, LoadError>),
     DragStarted,
     GameSelected(PossibleGames)
 }
@@ -151,8 +175,8 @@ fn rad(deg: f32) -> f32 {
     deg * std::f32::consts::PI / 180.0
 }
 
-fn get_game_background(game: &PossibleGames) -> Element<Message> {
-    let file_path: &str = match game {
+fn get_game_background(state: &State) -> LauncherBackground {
+    let file_path: &str = match state.selected_game {
         PossibleGames::WutheringWaves => "wutheringwaves-bg.mp4",
         PossibleGames::ZenlessZoneZero => "zenlesszonezero-bg.png",
         PossibleGames::HonkaiStarRail => "honkaistarrail-bg.png",
@@ -170,8 +194,7 @@ fn get_game_background(game: &PossibleGames) -> Element<Message> {
             match Video::new(url::Url::from_file_path(temp_path).unwrap()) {
                 Ok(mut video) => {
                     video.set_looping(true);
-
-                    VideoPlayer::new(video).into()
+                    LauncherBackground::Video(video)
                 },
                 Err(err) => {
                     panic!("{:#?}", err)
@@ -183,20 +206,19 @@ fn get_game_background(game: &PossibleGames) -> Element<Message> {
                 .unwrap()
                 .decode()
                 .unwrap();
-            let handle = image::Handle::from_rgba(
+            LauncherBackground::Image(image::Handle::from_rgba(
                 img.width(), 
                 img.height(), 
                 img.to_rgba8().into_raw()
-            );
-            image(handle).content_fit(iced::ContentFit::Fill).into()
+            ))
         }
 
     } else {
-        panic!("Missing icon for {:?}, path: {}", game, file_path)
+        panic!("Missing icon for {:?}, path: {}", state.selected_game, file_path)
     }
 }
 
-fn get_game_icon(game: &PossibleGames) -> Element<Message> {
+fn get_game_icon_handle(game: &PossibleGames) -> image::Handle {
     let file_path: &str = match game {
         PossibleGames::WutheringWaves => "wutheringwaves-icon.png",
         PossibleGames::ZenlessZoneZero => "zenlesszonezero-icon.png",
@@ -208,22 +230,20 @@ fn get_game_icon(game: &PossibleGames) -> Element<Message> {
         let img = round_image(data_cursor)
             .unwrap()
             .resize(126, 126, ::image::imageops::FilterType::Lanczos3);
-        let handle = image::Handle::from_rgba(
+        
+        image::Handle::from_rgba(
             img.width(), 
             img.height(), 
             img.to_rgba8().into_raw()
-        );
-        container(image(handle).content_fit(iced::ContentFit::Contain).height(Length::Fixed(64.0)).filter_method(image::FilterMethod::Linear))
-        .style(move |_| {
-            container::Style {
-                border: border::rounded(20),
-                ..container::Style::default()
-            }
-        })
-        .into()
+        )
     } else {
         panic!("Missing icon for {:?}, path: {}", game, file_path)
     }
+}
+
+fn get_game_icon<'a>(state: &'a State, game: &'a PossibleGames) -> Element<'a, Message> {
+    let handle = state.icon_images.get(game).unwrap();
+    container(image(handle).content_fit(iced::ContentFit::Contain).height(Length::Fixed(64.0)).filter_method(image::FilterMethod::Linear)).into()
 }
 
 fn style_container(direction: f32, use_gradient: bool) -> container::Style {
@@ -241,7 +261,18 @@ fn style_container(direction: f32, use_gradient: bool) -> container::Style {
 }
 impl Launcher {
     fn boot() -> (Self, Task<Message>) {
-        (Self::Loaded(State::default()), Task::none())
+        let launcher_bg = get_game_background(&State::default());
+        let mut icons = HashMap::new();
+        for game in PossibleGames::iter() {
+            let icon = get_game_icon_handle(&game);
+            icons.insert(game, icon);
+        }
+        let final_state = State {
+            background: Some(launcher_bg),
+            icon_images: icons,
+            ..State::default()
+        };
+        (Self::Loaded(Box::new(final_state)), Task::none())
     }
 
     fn title(&self) -> String {
@@ -251,8 +282,8 @@ impl Launcher {
     fn update(&mut self, message: Message) -> Task<Message> {
         match self {
             Launcher::Loading => match message {
-                Message::Loaded(Ok(state)) => {
-                    *self = Launcher::Loaded(state);
+                Message::Loaded(Ok(save_state)) => {
+                    *self = Launcher::Loaded(save_state.into());
                     Task::none()
                 },
                 _ => Task::none(),
@@ -270,26 +301,26 @@ impl Launcher {
         }
     }
 
-    fn view(&self) -> Element<Message> {
-        let game_selector = container(
-            row![
-                get_game_icon(&PossibleGames::WutheringWaves),
-                get_game_icon(&PossibleGames::ZenlessZoneZero),
-                get_game_icon(&PossibleGames::HonkaiStarRail),
-                get_game_icon(&PossibleGames::GenshinImpact),
-            ]
-            .spacing(10),
-        )
-        .padding(10)
-        .align_y(Top)
-        .align_x(Center)
-        .width(Length::Fill)
-        .style(move |_| style_container(0.0, true));
-        
-        println!("whuh");
+    fn view(&self) -> Element<Message> {     
+        println!("rerender triggered");
         match self {
             Launcher::Loading => center(text("Loading...").size(50)).into(),
             Launcher::Loaded(state) => {
+                let game_selector = container(
+                    row![
+                        get_game_icon(state, &PossibleGames::WutheringWaves),
+                        get_game_icon(state, &PossibleGames::ZenlessZoneZero),
+                        get_game_icon(state, &PossibleGames::HonkaiStarRail),
+                        get_game_icon(state, &PossibleGames::GenshinImpact),
+                    ]
+                    .spacing(10),
+                )
+                .padding(10)
+                .align_y(Top)
+                .align_x(Center)
+                .width(Length::Fill)
+                .style(move |_| style_container(0.0, true));
+
                 let topbar = container(
                     mouse_area(row![
                     text("Reversed Rooms").size(25),
@@ -322,8 +353,13 @@ impl Launcher {
                     column![topbar, Space::new(Length::Fill, Length::Fill), bottom_bar].width(Length::Fill);
         
                 let content = container(user_area).center(Length::Fill);
+                let background = state.background.as_ref().unwrap();
+                let bg_element: Element<Message> = match background {
+                    LauncherBackground::Video(video) => VideoPlayer::new(video).into(),
+                    LauncherBackground::Image(handle) => image(handle.clone()).into(),
+                };
 
-                stack![get_game_background(&state.selected_game), game_selector, content].into()
+                stack![bg_element, game_selector, content].into()
             }
         }
     }

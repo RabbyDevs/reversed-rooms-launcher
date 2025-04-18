@@ -10,27 +10,27 @@ use std::{marker::PhantomData, sync::atomic::Ordering};
 use std::{sync::Arc, time::Instant};
 
 /// Video player widget which displays the current frame of a [`Video`](crate::Video).
-pub struct VideoPlayer<Message, Theme = iced::Theme, Renderer = iced::Renderer>
+pub struct VideoPlayer<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer>
 where
     Renderer: PrimitiveRenderer
 {
-    video: Video,
+    video: &'a Video,
     content_fit: iced::ContentFit,
     width: iced::Length,
     height: iced::Length,
     on_end_of_stream: Option<Message>,
     on_new_frame: Option<Message>,
-    on_subtitle_text: Option<Box<dyn Fn(Option<String>) -> Message>>,
-    on_error: Option<Box<dyn Fn(&glib::Error) -> Message>>,
+    on_subtitle_text: Option<Box<dyn Fn(Option<String>) -> Message + 'a>>,
+    on_error: Option<Box<dyn Fn(&glib::Error) -> Message + 'a>>,
     _phantom: PhantomData<(Theme, Renderer)>,
 }
 
-impl<Message, Theme, Renderer> VideoPlayer<Message, Theme, Renderer>
+impl<'a, Message, Theme, Renderer> VideoPlayer<'a, Message, Theme, Renderer>
 where
     Renderer: PrimitiveRenderer
 {
     /// Creates a new video player widget for a given video.
-    pub fn new(video: Video) -> Self {
+    pub fn new(video: &'a Video) -> Self {
         VideoPlayer {
             video,
             content_fit: iced::ContentFit::default(),
@@ -108,7 +108,7 @@ where
 }
 
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for VideoPlayer<Message, Theme, Renderer>
+    for VideoPlayer<'_, Message, Theme, Renderer>
 where
     Message: Clone,
     Renderer: PrimitiveRenderer,
@@ -292,14 +292,14 @@ where
     }
 }
 
-impl<Message, Theme, Renderer> From<VideoPlayer<Message, Theme, Renderer>>
-    for Element<'_, Message, Theme, Renderer>
+impl<'a, Message, Theme, Renderer> From<VideoPlayer<'a, Message, Theme, Renderer>>
+    for Element<'a, Message, Theme, Renderer>
 where
-    Message: 'static + Clone,
-    Theme: 'static,
-    Renderer: 'static + PrimitiveRenderer,
+    Message: 'a + Clone,
+    Theme: 'a,
+    Renderer: 'a + PrimitiveRenderer,
 {
-    fn from(video_player: VideoPlayer<Message, Theme, Renderer>) -> Self {
+    fn from(video_player: VideoPlayer<'a, Message, Theme, Renderer>) -> Self {
         Self::new(video_player)
     }
 }
